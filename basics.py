@@ -84,12 +84,14 @@ def calculate_rgb_histogram(frame, bins=256):
     """Calculate histogram for all RGB channels"""
     if len(frame.shape) == 2:  # Grayscale
         hist = cv2.calcHist([frame], [0], None, [bins], [0, 256])
-        return [hist], [hist], [hist]
+        return hist.flatten(), hist.flatten(), hist.flatten()
     
-    # For color images
+    # For color images - BGR format in OpenCV
     channels = cv2.split(frame)
     hists = []
     for ch in channels:
         hist = cv2.calcHist([ch], [0], None, [bins], [0, 256])
-        hists.append(hist)
-    return hists[0], hists[1], hists[2]  # R, G, B
+        hists.append(hist.flatten())
+    
+    # OpenCV uses BGR, so return B, G, R to match RGB order expected by plotting
+    return hists[2], hists[1], hists[0]  # R, G, B

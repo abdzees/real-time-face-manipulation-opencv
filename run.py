@@ -1,149 +1,226 @@
-# # -*- coding: utf-8 -*-
-# """
-# Created on Thu Apr 22 11:59:19 2021
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Apr 22 11:59:19 2021
 
-# @author: droes
-# """
-# import cv2  # Add this import at the top
-# import keyboard # pip install keyboard
-
-# from capturing import VirtualCamera
-# from overlays import initialize_hist_figure, plot_overlay_to_image, plot_strings_to_image, update_histogram
-# from basics import histogram_figure_numba
-
-# def custom_processing(img_source_generator):
-#     fig, ax, background, r_plot, g_plot, b_plot = initialize_hist_figure()
-    
-#     for sequence in img_source_generator:
-#         # Call your custom processing methods here!
-
-#         rgb_frame = cv2.cvtColor(sequence, cv2.COLOR_BGR2RGB)
-
-#         if keyboard.is_pressed('h'):
-#             print('h pressed')
-            
-#         # Calculate histogram
-#         r_bars, g_bars, b_bars = histogram_figure_numba(rgb_frame)         
-        
-#         # Update histogram
-#         update_histogram(fig, ax, background, r_plot, g_plot, b_plot, r_bars, g_bars, b_bars)
-        
-#         # Add histogram overlay
-#         processed_frame = plot_overlay_to_image(rgb_frame, fig)
-        
-#         # Display text
-#         display_text_arr = ["Test", "abc"]
-#         processed_frame = plot_strings_to_image(processed_frame, display_text_arr)
-
-#         # Convert back to BGR for display
-#         display_frame = cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
-        
-#         # Display the processed frame
-#         cv2.imshow('Camera Feed', display_frame)
-        
-#         if cv2.waitKey(1) & 0xFF == ord('q'):
-#             break
-
-#         # Yield the RGB frame for virtual camera
-#         yield processed_frame
-
-#     cv2.destroyAllWindows()
-
-# def main():
-#     width = 1280
-#     height = 720
-#     fps = 30
-    
-#     vc = VirtualCamera(fps, width, height)
-    
-#     vc.virtual_cam_interaction(
-#         custom_processing(
-#             vc.capture_cv_video(0, bgr_to_rgb=False)
-#             # or your window screen
-#             # vc.capture_screen()
-#         )
-#     )
-
-# if __name__ == "__main__":
-#     main()
-
+@author: droes
+"""
 import cv2
 import keyboard
+import time
+import numpy as np
 from capturing import VirtualCamera
 from overlays import *
 from basics import *
 
 def custom_processing(img_source_generator):
+    """
+    Main processing function that handles real-time video processing
+    """
+    print("Initializing processing components...")
+    
     # Initialize components
     face_cascade = initialize_face_detector()
+    
+    # State variables
     current_mode = 'normal'
     show_stats = False
-    # Initialize histogram
-    hist_fig, hist_ax, hist_bg, r_plot, g_plot, b_plot = initialize_hist_figure()
     show_histogram = False
+    show_help = False
     
-    for sequence in img_source_generator:
-        # Calculate histograms
-        r_hist, g_hist, b_hist = calculate_rgb_histogram(sequence)
-        # Process keyboard inputs
-        if keyboard.is_pressed('1'): current_mode = 'edge'
-        elif keyboard.is_pressed('2'): current_mode = 'equalize'
-        elif keyboard.is_pressed('3'): current_mode = 'dog_filter'
-        elif keyboard.is_pressed('s'): show_stats = not show_stats
-        elif keyboard.is_pressed('0'): current_mode = 'normal'
-        elif keyboard.is_pressed('4'):  # Linear transform
-            sequence = linear_transform(sequence, alpha=1.2, beta=30)
-        elif keyboard.is_pressed('5'):  # Show entropy
-            entropies = [calculate_entropy(ch) for ch in cv2.split(sequence)]
-            entropy_text = f"Entropy: R{entropies[0]:.2f} G{entropies[1]:.2f} B{entropies[2]:.2f}"
-            sequence = plot_strings_to_image(sequence, [entropy_text])
+    # Initialize histogram figure
+    try:
+        hist_fig, hist_ax, hist_bg, r_plot, g_plot, b_plot = initialize_hist_figure()
+        histogram_initialized = True
+        print("Histogram initialized successfully")
+    except Exception as e:
+        print(f"Failed to initialize histogram: {e}")
+        histogram_initialized = False
+    
+    # Keyboard state tracking to prevent multiple triggers
+    key_states = {}
+    def is_key_pressed_once(key):
+        current_state = keyboard.is_pressed(key)
+        previous_state = key_states.get(key, False)
+        key_states[key] = current_state
+        return current_state and not previous_state
+    
+    print("Processing started. Controls:")
+    print("0: Normal | 1: Edges | 2: Equalize | 3: Dog Filter")
+    print("4: Linear Transform | 5: Entropy | h: Histogram | s: Stats")
+    print("?: Help | q: Quit")
+    
+    frame_count = 0
+    
+    try:
+        for sequence in img_source_generator:
+            if sequence is None:
+                continue
+                
+            frame_count += 1
+            original_sequence = sequence.copy()
+            
+            # Handle keyboard inputs (using single-press detection)
+            if is_key_pressed_once('0'): 
+                current_mode = 'normal'
+                print("Mode: Normal")
+            elif is_key_pressed_once('1'): 
+                current_mode = 'edge'
+                print("Mode: Edge Detection")
+            elif is_key_pressed_once('2'): 
+                current_mode = 'equalize'
+                print("Mode: Histogram Equalization")
+            elif is_key_pressed_once('3'): 
+                current_mode = 'dog_filter'
+                print("Mode: Dog Filter")
+            elif is_key_pressed_once('4'): 
+                current_mode = 'linear_transform'
+                print("Mode: Linear Transform")
+            elif is_key_pressed_once('5'): 
+                current_mode = 'entropy'
+                print("Mode: Entropy Display")
+            elif is_key_pressed_once('h'): 
+                show_histogram = not show_histogram
+                print(f"Histogram: {'ON' if show_histogram else 'OFF'}")
+            elif is_key_pressed_once('s'): 
+                show_stats = not show_stats
+                print(f"Stats: {'ON' if show_stats else 'OFF'}")
+            elif is_key_pressed_once('/'): 
+                show_help = not show_help
+                print(f"Help: {'ON' if show_help else 'OFF'}")
+            
+            # Apply selected processing mode
+            processed_sequence = sequence.copy()
+            
+            if current_mode == 'edge':
+                edge_result = edge_detection(sequence)
+                processed_sequence = cv2.cvtColor(edge_result, cv2.COLOR_GRAY2BGR)
+                
+            elif current_mode == 'equalize':
+                processed_sequence = apply_histogram_equalization(sequence)
+                
+            elif current_mode == 'dog_filter':
+                processed_sequence = apply_filter_overlay(sequence, face_cascade, 'filters/dog_nose.png')
+                
+            elif current_mode == 'linear_transform':
+                processed_sequence = linear_transform(sequence, alpha=1.2, beta=30)
+                
+            elif current_mode == 'entropy':
+                try:
+                    channels = cv2.split(sequence)
+                    entropies = [calculate_entropy(ch) for ch in channels]
+                    entropy_text = [
+                        f"Entropy Values:",
+                        f"Blue: {entropies[0]:.2f}",
+                        f"Green: {entropies[1]:.2f}",
+                        f"Red: {entropies[2]:.2f}"
+                    ]
+                    processed_sequence = plot_strings_to_image(processed_sequence, entropy_text)
+                except Exception as e:
+                    print(f"Entropy calculation error: {e}")
+            
+            # Add histogram overlay if enabled
+            if show_histogram and histogram_initialized:
+                try:
+                    r_hist, g_hist, b_hist = calculate_rgb_histogram(processed_sequence)
+                    update_histogram(hist_fig, hist_ax, hist_bg, 
+                                   r_plot, g_plot, b_plot, 
+                                   r_hist, g_hist, b_hist)
+                    processed_sequence = plot_overlay_to_image(processed_sequence, hist_fig)
+                except Exception as e:
+                    print(f"Histogram overlay error: {e}")
+            
+            # Show statistics if enabled
+            if show_stats:
+                try:
+                    stats = calculate_basic_stats(processed_sequence)
+                    if len(stats) >= 3:  # BGR channels
+                        stats_text = [
+                            "Statistics (B|G|R):",
+                            f"Mean: {stats[0]['mean']:.1f}|{stats[1]['mean']:.1f}|{stats[2]['mean']:.1f}",
+                            f"Std: {stats[0]['std']:.1f}|{stats[1]['std']:.1f}|{stats[2]['std']:.1f}",
+                            f"Mode: {stats[0]['mode']}|{stats[1]['mode']}|{stats[2]['mode']}"
+                        ]
+                        processed_sequence = plot_strings_to_image(processed_sequence, stats_text)
+                except Exception as e:
+                    print(f"Statistics display error: {e}")
+            
+            # Show help if enabled
+            if show_help:
+                help_text = [
+                    "=== CONTROLS ===",
+                    "0: Normal Mode",
+                    "1: Edge Detection", 
+                    "2: Histogram Equalization",
+                    "3: Dog Filter (needs filter image)",
+                    "4: Linear Transform",
+                    "5: Entropy Display",
+                    "h: Toggle Histogram",
+                    "s: Toggle Statistics",
+                    "/: Toggle This Help",
+                    "q: Quit Application"
+                ]
+                processed_sequence = plot_strings_to_image(processed_sequence, help_text, 
+                                                         right_space=500, top_space=30)
+            
+            # Show current mode indicator
+            mode_text = [f"Mode: {current_mode.upper()}"]
+            processed_sequence = plot_strings_to_image(processed_sequence, mode_text, 
+                                                     text_color=(0, 255, 0), 
+                                                     right_space=200, top_space=30)
+            
+            # Display the processed frame
+            window_title = f'Camera Feed - {current_mode.upper()} | Press / for help'
+            cv2.imshow(window_title, processed_sequence)
+            
+            # Check for quit
+            if cv2.waitKey(1) & 0xFF == ord('q') or keyboard.is_pressed('q'):
+                print("Quit command received")
+                break
+                
+            # Yield the processed frame for virtual camera
+            yield processed_sequence
+            
+    except KeyboardInterrupt:
+        print("Processing interrupted by user")
+    except Exception as e:
+        print(f"Processing error: {e}")
+    finally:
+        cv2.destroyAllWindows()
+        print("Processing finished")
 
-        elif keyboard.is_pressed('?'):
-            help_text = [
-                "Controls:",
-                "0: Normal  1: Edges  2: Equalize",
-                "3: Dog Filter  4: Linear Transform",
-                "5: Entropy  h: Histogram  s: Stats",
-                "?: Help  q: Quit"
-            ]
-            sequence = plot_strings_to_image(sequence, help_text, position=(10, 50))
+def main():
+    """Main function to set up and run the application"""
+    print("=== Real-time Video Processing Application ===")
+    
+    # Camera settings
+    width = 1280
+    height = 720
+    fps = 30
+    camera_id = 0
+    
+    print(f"Initializing virtual camera: {width}x{height} @ {fps}fps")
+    
+    try:
+        vc = VirtualCamera(fps, width, height)
         
-        # Toggle with 'h' key
-        elif keyboard.is_pressed('h'):
-            show_histogram = not show_histogram
-            
-        if show_histogram:
-            update_histogram(hist_fig, hist_ax, hist_bg, 
-                           r_plot, g_plot, b_plot, 
-                           r_hist, g_hist, b_hist)
-            sequence = plot_histogram_overlay(sequence, hist_fig)
+        # Choose input source
+        print("Starting camera capture...")
+        img_generator = vc.capture_cv_video(camera_id, bgr_to_rgb=False)
         
-        # Apply selected mode
-        if current_mode == 'edge':
-            sequence = cv2.cvtColor(edge_detection(sequence), cv2.COLOR_GRAY2BGR)
-        elif current_mode == 'equalize':
-            sequence = apply_histogram_equalization(sequence)
-        elif current_mode == 'dog_filter':
-            sequence = apply_filter_overlay(sequence, face_cascade, 'filters\dog_nose.png')
+        # Alternative: Screen capture
+        # img_generator = vc.capture_screen()
         
-        # Show statistics if enabled
-        if show_stats:
-            stats = calculate_basic_stats(sequence)
-            stats_text = [
-                f"Mean: {stats[0]['mean']:.1f} | {stats[1]['mean']:.1f} | {stats[2]['mean']:.1f}",
-                f"Std: {stats[0]['std']:.1f} | {stats[1]['std']:.1f} | {stats[2]['std']:.1f}"
-            ]
-            sequence = plot_strings_to_image(sequence, stats_text)
+        # Start processing and virtual camera
+        processing_generator = custom_processing(img_generator)
+        vc.virtual_cam_interaction(processing_generator)
         
-        # Display
-        cv2.imshow('Controls: 0-5 | s=stats | q=quit', sequence)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-            
-        yield sequence
+    except RuntimeError as e:
+        print(f"Runtime error: {e}")
+        print("Make sure your camera is connected and not being used by another application")
+    except Exception as e:
+        print(f"Application error: {e}")
+    finally:
+        print("Application closed")
 
 if __name__ == "__main__":
-    vc = VirtualCamera(fps=30, width=1280, height=720)
-    vc.virtual_cam_interaction(
-        custom_processing(vc.capture_cv_video(0, bgr_to_rgb=False))
-    )
+    main()
