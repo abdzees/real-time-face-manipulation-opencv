@@ -1,10 +1,3 @@
-# # -*- coding: utf-8 -*-
-# """
-# Created on Thu Apr 22 13:18:55 2021
-
-# @author: droes
-# """
-
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -206,4 +199,5 @@ def apply_filter_overlay(frame, face_cascade, filter_img_path='filters/dog_nose.
         # Display error on frame
         cv2.putText(frame, "Filter Error", (10, 30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
     return frame
