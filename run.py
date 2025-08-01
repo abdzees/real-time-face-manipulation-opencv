@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Apr 22 11:59:19 2021
 
-@author: droes
-"""
 import cv2
 import keyboard
 import time
@@ -223,4 +218,5 @@ def main():
         print("Application closed")
 
 if __name__ == "__main__":
+
     main()
